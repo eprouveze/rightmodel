@@ -4,7 +4,7 @@
 
 RightModel decides two things on every task: *which* model should run it, and *how much* that model is allowed to do on its own. It is the routing-and-trust substrate behind [Stewardship Engineering](https://emmanuel.prouveze.fr/writing/stewardship-engineering): the layer that turns "call an LLM" into "call the model that has earned this class of work, then check it afterward."
 
-> In daily production use. **204 tests pass.**
+> Runs daily. **204 tests pass.**
 
 ---
 
@@ -88,7 +88,7 @@ rightmodel route --task-class coding --taint public
 # capability matrix + breaker + anti-Goodhart summary
 rightmodel report
 
-# append a production outcome to the ledger
+# append a real (non-synthetic) outcome to the ledger
 rightmodel record --task-class coding --model claude-haiku-4-5 ...
 ```
 
