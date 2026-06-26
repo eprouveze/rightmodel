@@ -4,7 +4,7 @@
 
 RightModel decides two things on every task: *which* model should run it, and *how much* that model is allowed to do on its own. It is the routing-and-trust substrate behind [Stewardship Engineering](https://emmanuel.prouveze.fr/writing/stewardship-engineering): the layer that turns "call an LLM" into "call the model that has earned this class of work, then check it afterward."
 
-> Status: working tooling with rough edges, not a polished product. The author runs a heavily-extended version daily; this is the genericized core. **204 tests pass.**
+> In daily production use. **204 tests pass.**
 
 ---
 
@@ -29,7 +29,7 @@ taint  →  availability  →  capability  →  cost
 
 ### 2. The council
 
-For load-bearing calls, one model's say-so is not enough. `choose_panel()` convenes a multi-provider panel and synthesizes their answers, because the failure mode of single-model (and same-model-different-persona) setups is *confident agreement on a wrong answer*. Combining several models into one stronger answer is an idea owed to Sakana's [Fugu](https://sakana.ai/fugu/).
+For load-bearing calls, one model's say-so is not enough. `choose_panel()` convenes a multi-provider panel and synthesizes their answers, because the failure mode of single-model (and same-model-different-persona) setups is *confident agreement on a wrong answer*. Combining several models into one stronger answer is an idea owed to Sakana's [Fugu](https://sakana.ai/fugu/) and [OpenRouter Fusion](https://openrouter.ai/fusion), which both do exactly this.
 
 ### 3. The outcome ledger and earned autonomy
 
