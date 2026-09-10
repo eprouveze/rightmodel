@@ -338,3 +338,99 @@ def test_record_result_none_model_is_noop(ledger, breaker) -> None:
     r = _router(ledger, breaker, {}, explore_rate=0.0)
     r.record_result(d, outcome=Outcome.FAIL.value, verified=False, cost_usd=0.0)
     assert ledger.rows() == []
+
+
+# --------------------------------------------------------------------------- cold-start UCB bar
+
+
+def test_cold_cell_survives_bar_via_ucb(ledger, breaker) -> None:
+    # a COLD cell below the bar by true mu but whose optimistic bound (mu +
+    # k*sigma) clears the bar survives; a SETTLED sub-bar cell is rejected.
+    cells = {
+        "claude-haiku-4-5": _Cell(55.0, 25.0, CellState.COLD.value),  # ucb 80 >= 60
+        "gpt-5.5": _Cell(55.0, 4.0, CellState.SETTLED.value),         # ucb 55 < 60
+    }
+    r = _router(ledger, breaker, cells, bar=60.0, explore_rate=0.0)
+    d = r.choose(
+        task_class="coding",
+        taint_set={TaintClass.PUBLIC},
+        candidates=["claude-haiku-4-5", "gpt-5.5"],
+    )
+    assert d.model == "claude-haiku-4-5"  # cold cell admitted via UCB, sole survivor
+    assert "gpt-5.5" in d.rejected
+    assert "below-bar" in d.rejected["gpt-5.5"]
+
+
+def test_settled_cell_below_bar_still_rejected(ledger, breaker) -> None:
+    # control: a SETTLED cell gets no sigma bonus, so sub-bar stays rejected.
+    cells = {
+        "claude-haiku-4-5": _Cell(80.0, 4.0, CellState.SETTLED.value),
+        "gpt-5.5": _Cell(55.0, 4.0, CellState.SETTLED.value),
+    }
+    r = _router(ledger, breaker, cells, bar=60.0, explore_rate=0.0)
+    d = r.choose(
+        task_class="coding",
+        taint_set={TaintClass.PUBLIC},
+        candidates=["claude-haiku-4-5", "gpt-5.5"],
+    )
+    assert d.model == "claude-haiku-4-5"
+    assert "gpt-5.5" in d.rejected
+    assert "below-bar" in d.rejected["gpt-5.5"]
+
+
+# --------------------------------------------------------------------------- role & cross-family exclusion
+
+
+def test_evaluator_role_excludes_same_family_by_name(ledger, breaker) -> None:
+    cells = {
+        "claude-haiku-4-5": _Cell(90.0, 4.0, CellState.SETTLED.value),
+        "gpt-5.5": _Cell(88.0, 4.0, CellState.SETTLED.value),
+    }
+    r = _router(ledger, breaker, cells, explore_rate=0.0)
+    d = r.choose(
+        task_class="coding",
+        taint_set={TaintClass.PUBLIC},
+        candidates=["claude-haiku-4-5", "gpt-5.5"],
+        role="evaluator",
+        exclude_family="claude",
+    )
+    assert d.model == "gpt-5.5"
+    assert d.role == "evaluator"
+    assert "claude-haiku-4-5" in d.rejected
+    assert "cross-family" in d.rejected["claude-haiku-4-5"]
+
+
+def test_evaluator_role_infers_exclusion_from_executor_model(ledger, breaker) -> None:
+    cells = {
+        "claude-haiku-4-5": _Cell(90.0, 4.0, CellState.SETTLED.value),
+        "gemini-3.1-pro-preview": _Cell(85.0, 4.0, CellState.SETTLED.value),
+    }
+    r = _router(ledger, breaker, cells, explore_rate=0.0)
+    d = r.choose(
+        task_class="coding",
+        taint_set={TaintClass.PUBLIC},
+        candidates=["claude-haiku-4-5", "gemini-3.1-pro-preview"],
+        role="evaluator",
+        executor_model="claude-opus-4-8",
+    )
+    assert d.model == "gemini-3.1-pro-preview"
+    assert d.role == "evaluator"
+    assert "claude-haiku-4-5" in d.rejected
+
+
+def test_evaluator_returns_none_when_no_cross_family_survives(ledger, breaker) -> None:
+    cells = {
+        "claude-opus-4-8": _Cell(90.0, 4.0, CellState.SETTLED.value),
+        "claude-haiku-4-5": _Cell(70.0, 4.0, CellState.SETTLED.value),
+    }
+    r = _router(ledger, breaker, cells, explore_rate=0.0)
+    d = r.choose(
+        task_class="coding",
+        taint_set={TaintClass.PUBLIC},
+        candidates=["claude-opus-4-8", "claude-haiku-4-5"],
+        role="evaluator",
+        exclude_family="claude",
+    )
+    assert d.model is None
+    assert d.role == "evaluator"
+    assert "cross-family" in d.reason

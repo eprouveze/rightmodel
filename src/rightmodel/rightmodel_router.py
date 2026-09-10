@@ -36,6 +36,7 @@ from .stakes_score import StakesDecision, append_stakes_decision
 
 _QUALITY_PREMIUM_MU = 15.0
 _HIGH_SIGMA = 12.0
+_UCB_K = 1.0  # exploration coefficient: cold cells judged on mu + k*sigma
 
 FUSION_MODEL = "council:budget-trio"
 
@@ -58,6 +59,7 @@ class RouteDecision:
     candidates_considered: list[str] = field(default_factory=list)
     execution_mode: str = "completion"
     harness: str | None = None  # the (model × harness) pairing chosen to run the task
+    role: str = "executor"  # executor | evaluator | designer
 
 
 class RightModelRouter:
@@ -95,6 +97,15 @@ class RightModelRouter:
             )
         )
 
+    @staticmethod
+    def _bar_score(cell) -> float:
+        """P2: optimistic bar score — a COLD cell is judged on mu + k*sigma so high
+        variance ("we don't know yet") gets the benefit of the doubt; a settled cell
+        (tiny sigma) is judged on its point estimate alone, unchanged from before."""
+        if cell.state == CellState.COLD.value:
+            return cell.mu + _UCB_K * cell.sigma
+        return cell.mu
+
     def choose(
         self,
         *,
@@ -105,6 +116,9 @@ class RightModelRouter:
         lang: str = "en",
         execution_mode: str = "completion",
         stakes: str | None = None,
+        role: str = "executor",
+        exclude_family: str | None = None,
+        executor_model: str | None = None,
     ) -> RouteDecision:
         """Run the cascade and return a RouteDecision (model=None if none survive).
 
@@ -114,10 +128,22 @@ class RightModelRouter:
         default ``completion`` mode every candidate is eligible, so the stage is a
         no-op and routing is unchanged. ``script:`` needs no LLM — the caller should
         short-circuit before routing (the consumer does).
+
+        ``role`` (``executor`` | ``evaluator`` | ``designer``) adds role-separation
+        constraints. When ``role == "evaluator"`` and an excluded family is provided
+        (via ``exclude_family`` or inferred from ``executor_model``), candidates sharing
+        that provider/family are rejected to prevent self-preference bias.
         """
         cands = list(candidates) if candidates is not None else list(CANDIDATES.get(task_class, []))
         rejected: dict[str, str] = {}
         resolved_stakes = stakes if stakes is not None else "low"
+
+        # Resolve cross-family exclusion for evaluator role
+        family_to_exclude: str | None = None
+        if exclude_family:
+            family_to_exclude = exclude_family.lower()
+        elif executor_model:
+            family_to_exclude = model_to_provider(executor_model).value.lower()
 
         # Stage 0 — stakes short-circuit. High-stakes callers escalate to the
         # fusion panel, BUT taint still governs external fan-out: if the taint set
@@ -131,6 +157,7 @@ class RightModelRouter:
                 reason="stakes-escalation",
                 candidates_considered=cands,
                 execution_mode=execution_mode,
+                role=role,
             )
 
         # Stage 1 — taint.
@@ -149,7 +176,30 @@ class RightModelRouter:
                 reason="no candidate survived the taint stage",
                 rejected=rejected,
                 candidates_considered=cands,
+                role=role,
             )
+
+        # Stage 1.5 — cross-family role constraint (evaluator must not share family with executor).
+        if family_to_exclude:
+            filtered_survivors = []
+            for model in survivors:
+                prov = model_to_provider(model).value.lower()
+                if prov == family_to_exclude:
+                    rejected[model] = f"cross-family: excluded family {family_to_exclude}"
+                else:
+                    filtered_survivors.append(model)
+            if not filtered_survivors:
+                self._emit_stakes_decision(run_id, stakes, "cost-min", resolved_stakes)
+                return RouteDecision(
+                    model=None,
+                    task_class=task_class,
+                    reason=f"no candidate survived cross-family exclusion of {family_to_exclude}",
+                    rejected=rejected,
+                    candidates_considered=cands,
+                    execution_mode=execution_mode,
+                    role=role,
+                )
+            survivors = filtered_survivors
 
         # Stage 2 — breaker availability.
         avail = []
@@ -168,6 +218,7 @@ class RightModelRouter:
                 rejected=rejected,
                 candidates_considered=cands,
                 execution_mode=execution_mode,
+                role=role,
             )
 
         # Stage 3 — execution-mode eligibility. Drop candidates with no wired
@@ -187,13 +238,18 @@ class RightModelRouter:
                 rejected=rejected,
                 candidates_considered=cands,
                 execution_mode=execution_mode,
+                role=role,
             )
         avail = eligible
 
         # Stage 4 — capability bar (with safety floor).
         bar = self.matrix.min_bar(task_class)
         cells = {m: self.matrix.cell(task_class, m) for m in avail}
-        above = [m for m in avail if cells[m].mu >= bar]
+        # P2: sigma-aware bar. A COLD cell is judged on an optimistic upper-confidence
+        # bound (mu + k*sigma) so "we don't know yet" isn't a death sentence — a single
+        # lost early duel can tip a cold cell under the bar, and without this it never
+        # earns the data to recover. Settled cells (tiny sigma) are effectively unchanged.
+        above = [m for m in avail if self._bar_score(cells[m]) >= bar]
         if above:
             qualified = above
         else:
@@ -234,6 +290,7 @@ class RightModelRouter:
                 candidates_considered=cands,
                 execution_mode=execution_mode,
                 harness=_harness_value(chosen, execution_mode),
+                role=role,
             )
 
         cost_min = min(qualified, key=lambda m: (blended_cost(m), -cells[m].mu, m))
@@ -267,6 +324,7 @@ class RightModelRouter:
             candidates_considered=cands,
             execution_mode=execution_mode,
             harness=_harness_value(chosen, execution_mode),
+            role=role,
         )
 
     def choose_panel(
