@@ -54,7 +54,7 @@ class ActionReceipt(BaseModel):
 
     # Execution
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    model: str = Field(..., description="Model used (e.g. claude-sonnet-4-6, deepseek-v4-pro)")
+    model: str = Field(..., description="Model used (e.g. claude-sonnet-5, deepseek-v4-pro)")
     cost_usd: float = Field(..., ge=0.0, description="USD cost of this action")
     data_taint: set[TaintClass] = Field(
         default_factory=lambda: {TaintClass.INTERNAL},

@@ -51,6 +51,52 @@ def blended_cost(model: str) -> float:
     return input_cost * 0.25 + output_cost * 0.75
 
 
+# --- Subscription-seat awareness ---------------------------------------------
+# PRICES is a metered API rate card. Many deployments reach some models through a
+# flat-rate subscription CLI/UI instead of the metered API (e.g. a Claude Max /
+# ChatGPT Plus / Google AI subscription), where the true marginal cost of a call
+# is $0 even though the same model has a nonzero entry in PRICES. Ranking those
+# calls on the metered rate card inverts cost-min routing: subscription-backed
+# models look like the MOST expensive options and lose to models that are
+# actually billed per token but happen to have a low sticker price. If your
+# deployment routes some model families through a subscription vehicle, wire
+# that mapping into `vehicle_for` below and prefer `SUBSCRIPTION_NOTIONAL` over
+# `blended_cost` for those models in your cost comparisons.
+#
+# `_CODEX_UNSUPPORTED` exists because a subscription CLI may not actually be able
+# to serve every model in its family — if a call silently falls back to the
+# billed API instead of erroring, it must be costed as metered even though this
+# function would otherwise claim it's free. Populate it with any model IDs your
+# subscription vehicle is known not to serve; leave it empty if not applicable.
+_CODEX_UNSUPPORTED: frozenset[str] = frozenset()
+
+# Notional USD/1M for a subscription seat. The true marginal cash cost is 0.0, so
+# these encode relative QUOTA SCARCITY across shared seats, not money: a heavily
+# contended pool (e.g. one shared across every interactive session and background
+# worker) should rank last among the free seats so its headroom is preserved for
+# work that has nowhere else to go. Keep every value well below the cheapest
+# metered seat in your PRICES table so a subscription always beats a metered
+# model in cost-min comparisons — that ordering is usually the intended policy.
+# These are deliberate knobs to tune per deployment, not measurements.
+SUBSCRIPTION_NOTIONAL: dict[str, float] = {}
+
+
+def vehicle_for(model: str) -> str | None:
+    """The subscription vehicle that serves this model, or None if it is metered.
+
+    Adapt the prefix matching below to your own provider naming and subscription
+    vehicles; returns None (metered/unknown) by default for every model. Mirror
+    this mapping in your own runner's backend-selection logic so the two never
+    drift apart — a test asserting that is recommended.
+    """
+    m = (model or "").lower()
+    if m.startswith("council:"):
+        return None  # fusion pseudo-model: cost is the summed seat cost at run time
+    if m in _CODEX_UNSUPPORTED:
+        return None
+    return None
+
+
 # Weak bootstrapped capability prior on a 0-100 scale, per (task_class, model).
 # All values in the 55-90 band — the ledger posterior overrides this with volume.
 SEED_PRIOR: dict[str, dict[str, float]] = {
