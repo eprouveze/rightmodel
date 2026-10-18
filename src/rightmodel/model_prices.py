@@ -1,53 +1,78 @@
-"""Model prices + bootstrapped capability prior (RightModel Module 1, no deps).
+"""Model prices, candidates, and capability priors (RightModel Module 1).
 
-Compact price table (USD/1M tokens, source: model-scan 2026-06-15), a blended-cost
-helper for ranking, the weak SEED_PRIOR capability matrix the ledger overrides as
-production volume arrives, and the admin-curated CANDIDATES routing pool per task class.
+Exposes the active catalog's price table, candidate pools per task class,
+bootstrapped capability priors, and the `blended_cost()` helper.
 
-All capability numbers are LOW confidence — qualitative council knowledge on a 0-100
-scale, kept inside a 55-90 band so the learned posterior can move freely.
+RightModel is provider- and model-agnostic: by default, these structures are loaded
+from the user's `models.json` (or path via `RIGHTMODEL_CONFIG` / `load_catalog()`).
+If no user configuration is supplied, a baseline test fixture catalog is used.
 """
 
 from __future__ import annotations
 
-# USD per 1M tokens, (input, output). Source: model-scan 2026-06-15.
-PRICES: dict[str, tuple[float, float]] = {
-    "claude-opus-4-8": (5.0, 25.0),
-    "claude-sonnet-4-6": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
-    "gpt-5.5": (5.0, 30.0),
-    "gpt-5.4-mini": (0.75, 4.5),
-    "gpt-5.4-nano": (0.2, 1.25),
-    "gpt-5.3-codex": (1.75, 14.0),
-    "gemini-3.1-pro-preview": (2.0, 12.0),
-    "gemini-2.5-pro": (1.25, 10.0),
-    "gemini-2.5-flash": (0.3, 2.5),
-    "deepseek-v4-pro": (0.435, 0.87),
-    "deepseek-v4-flash": (0.09, 0.18),
-    "kimi-k2.6": (0.68, 3.41),
-    "minimax-m3": (0.3, 1.2),
-    "sonar-pro": (3.0, 15.0),
-    # Modern frontier & utility models (USD / 1M tokens)
-    "claude-3-5-sonnet-20241022": (3.0, 15.0),
-    "claude-3-5-haiku-20241022": (0.80, 4.0),
-    "claude-3-opus-20240229": (15.0, 75.0),
-    "gpt-4o": (2.50, 10.0),
-    "gpt-4o-mini": (0.15, 0.60),
-    "o1": (15.0, 60.0),
-    "o3-mini": (1.10, 4.40),
-    "gemini-1.5-pro": (1.25, 5.0),
-    "gemini-1.5-flash": (0.075, 0.30),
-    "gemini-2.0-flash": (0.10, 0.40),
-    "deepseek-chat": (0.14, 0.28),
-    "deepseek-reasoner": (0.55, 2.19),
-    # Fusion pseudo-models — NOT real per-token models and NEVER in CANDIDATES (cost-min must
-    # never pick them). Registered as (0.0, 0.0) only so existing PRICES/blended_cost/matrix
-    # lookups never KeyError; their REAL cost is the A2 summed marginal seat cost at run time.
-    # "budget-trio" is a label, not a fixed roster: the actual panel is composed at run time by
-    # RightModelRouter.choose_panel (cheapest above-bar model per provider for the task class).
-    "council:budget-trio": (0.0, 0.0),
-    "council:self-lite": (0.0, 0.0),
-}
+from typing import Mapping
+from .model_catalog import (
+    ModelCatalog,
+    get_active_catalog,
+    load_catalog,
+    set_active_catalog,
+    _DEFAULT_FIXTURE_PRICES,
+    _DEFAULT_FIXTURE_CANDIDATES,
+    _DEFAULT_FIXTURE_PRIORS,
+)
+
+
+class _DynamicDict(dict):
+    """Dynamic dict view that reflects the active catalog unless explicitly modified."""
+
+    def __init__(self, key: str, fallback: dict) -> None:
+        super().__init__()
+        self._key = key
+        self._fallback = fallback
+
+    def _target(self) -> dict:
+        catalog = get_active_catalog()
+        target = getattr(catalog, self._key, None)
+        return target if target is not None else self._fallback
+
+    def __getitem__(self, k):
+        return self._target()[k]
+
+    def __setitem__(self, k, v):
+        self._target()[k] = v
+
+    def __delitem__(self, k):
+        del self._target()[k]
+
+    def __contains__(self, k):
+        return k in self._target()
+
+    def __iter__(self):
+        return iter(self._target())
+
+    def __len__(self):
+        return len(self._target())
+
+    def get(self, k, default=None):
+        return self._target().get(k, default)
+
+    def keys(self):
+        return self._target().keys()
+
+    def values(self):
+        return self._target().values()
+
+    def items(self):
+        return self._target().items()
+
+    def copy(self):
+        return dict(self._target())
+
+
+# Dynamic views backed by the active catalog
+PRICES: dict[str, tuple[float, float]] = _DynamicDict("prices", _DEFAULT_FIXTURE_PRICES)
+CANDIDATES: dict[str, list[str]] = _DynamicDict("candidates", _DEFAULT_FIXTURE_CANDIDATES)
+SEED_PRIOR: dict[str, dict[str, float]] = _DynamicDict("priors", _DEFAULT_FIXTURE_PRIORS)
 
 
 def blended_cost(model: str) -> float:
@@ -56,190 +81,16 @@ def blended_cost(model: str) -> float:
     Cheaper = lower. Unknown model → float("inf") so it sorts last and never wins
     a cost-min tie. Weighting favours output tokens, the dominant cost in practice.
     """
-    price = PRICES.get(model)
-    if price is None:
-        return float("inf")
-    input_cost, output_cost = price
-    return input_cost * 0.25 + output_cost * 0.75
+    return get_active_catalog().blended_cost(model)
 
 
-# Weak bootstrapped capability prior on a 0-100 scale, per (task_class, model).
-# All values in the 55-90 band — the ledger posterior overrides this with volume.
-SEED_PRIOR: dict[str, dict[str, float]] = {
-    "coding": {
-        "claude-opus-4-8": 90.0,
-        "gpt-5.3-codex": 89.0,
-        "claude-sonnet-4-6": 86.0,
-        "gpt-5.5": 86.0,
-        "gemini-3.1-pro-preview": 83.0,
-        "deepseek-v4-pro": 80.0,
-        "gemini-2.5-pro": 79.0,
-        "claude-haiku-4-5": 68.0,
-        "gpt-5.4-mini": 66.0,
-        "kimi-k2.6": 70.0,
-        "gpt-5.4-nano": 58.0,
-    },
-    "content_writing": {
-        "claude-opus-4-8": 90.0,
-        "claude-sonnet-4-6": 87.0,
-        "gpt-5.5": 84.0,
-        "gemini-3.1-pro-preview": 82.0,
-        "gemini-2.5-pro": 78.0,
-        "claude-haiku-4-5": 70.0,
-        "minimax-m3": 64.0,
-        "gpt-5.4-mini": 65.0,
-    },
-    "design": {
-        "claude-opus-4-8": 86.0,
-        "gpt-5.5": 84.0,
-        "gemini-3.1-pro-preview": 85.0,
-        "claude-sonnet-4-6": 82.0,
-        "gemini-2.5-pro": 78.0,
-        "claude-haiku-4-5": 66.0,
-        "gpt-5.4-mini": 63.0,
-    },
-    "planning_pm": {
-        "claude-opus-4-8": 88.0,
-        "gpt-5.5": 86.0,
-        "claude-sonnet-4-6": 84.0,
-        "gemini-3.1-pro-preview": 82.0,
-        "gemini-2.5-pro": 78.0,
-        "claude-haiku-4-5": 68.0,
-        "gpt-5.4-mini": 66.0,
-    },
-    "marketing": {
-        "claude-opus-4-8": 87.0,
-        "claude-sonnet-4-6": 85.0,
-        "gpt-5.5": 84.0,
-        "gemini-3.1-pro-preview": 81.0,
-        "gemini-2.5-pro": 77.0,
-        "claude-haiku-4-5": 69.0,
-        "minimax-m3": 63.0,
-        "gpt-5.4-mini": 65.0,
-    },
-    "data_analysis": {
-        "gpt-5.5": 89.0,
-        "claude-opus-4-8": 88.0,
-        "claude-sonnet-4-6": 84.0,
-        "gemini-3.1-pro-preview": 83.0,
-        "deepseek-v4-pro": 80.0,
-        "gemini-2.5-pro": 79.0,
-        "claude-haiku-4-5": 67.0,
-        "gpt-5.4-mini": 66.0,
-    },
-    "debugging": {
-        "claude-opus-4-8": 89.0,
-        "gpt-5.3-codex": 88.0,
-        "gpt-5.5": 86.0,
-        "claude-sonnet-4-6": 85.0,
-        "gemini-3.1-pro-preview": 82.0,
-        "deepseek-v4-pro": 79.0,
-        "claude-haiku-4-5": 67.0,
-        "gpt-5.4-mini": 64.0,
-    },
-    "testing": {
-        "claude-opus-4-8": 86.0,
-        "gpt-5.3-codex": 85.0,
-        "claude-sonnet-4-6": 83.0,
-        "gpt-5.5": 83.0,
-        "deepseek-v4-pro": 78.0,
-        "gemini-2.5-pro": 77.0,
-        "claude-haiku-4-5": 70.0,
-        "gpt-5.4-mini": 68.0,
-        "gpt-5.4-nano": 60.0,
-    },
-    "security_check": {
-        "claude-opus-4-8": 88.0,
-        "gpt-5.5": 85.0,
-        "claude-sonnet-4-6": 84.0,
-        "gemini-3.1-pro-preview": 81.0,
-        "deepseek-v4-pro": 76.0,
-        "claude-haiku-4-5": 66.0,
-        "gpt-5.4-mini": 62.0,
-    },
-    "research": {
-        "sonar-pro": 89.0,
-        "claude-opus-4-8": 85.0,
-        "gpt-5.5": 84.0,
-        "gemini-3.1-pro-preview": 83.0,
-        "claude-sonnet-4-6": 82.0,
-        "gemini-2.5-pro": 78.0,
-        "claude-haiku-4-5": 67.0,
-        "gpt-5.4-mini": 64.0,
-    },
-}
-
-
-# Admin-curated default routing pool per task class (subset of PRICES keys).
-CANDIDATES: dict[str, list[str]] = {
-    "coding": [
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "deepseek-v4-pro",
-        "gpt-5.4-mini",
-    ],
-    "content_writing": [
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "gpt-5.5",
-        "claude-haiku-4-5",
-        "minimax-m3",
-    ],
-    "design": [
-        "claude-opus-4-8",
-        "gemini-3.1-pro-preview",
-        "gpt-5.5",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-    ],
-    "planning_pm": [
-        "claude-opus-4-8",
-        "gpt-5.5",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "gpt-5.4-mini",
-    ],
-    "marketing": [
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "gpt-5.5",
-        "claude-haiku-4-5",
-        "minimax-m3",
-    ],
-    "data_analysis": [
-        "gpt-5.5",
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "deepseek-v4-pro",
-        "gemini-2.5-pro",
-        "gpt-5.4-mini",
-    ],
-    "debugging": [
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "deepseek-v4-pro",
-    ],
-    "testing": [
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-    ],
-    "security_check": [
-        "claude-opus-4-8",
-        "gpt-5.5",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "deepseek-v4-pro",
-    ],
-    "research": [
-        "sonar-pro",
-        "claude-opus-4-8",
-        "gpt-5.5",
-        "gemini-3.1-pro-preview",
-        "claude-sonnet-4-6",
-    ],
-}
+__all__ = [
+    "PRICES",
+    "CANDIDATES",
+    "SEED_PRIOR",
+    "blended_cost",
+    "ModelCatalog",
+    "load_catalog",
+    "get_active_catalog",
+    "set_active_catalog",
+]

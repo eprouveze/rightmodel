@@ -22,10 +22,13 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
+
 
 from . import rightmodel_harness as rm_harness
 from .action_receipt import TaintClass
 from .circuit_breaker import CircuitBreaker
+from .model_catalog import load_catalog
 from .model_prices import CANDIDATES, blended_cost
 from .rightmodel_ledger import RightModelLedger
 from .rightmodel_matrix import CapabilityMatrix
@@ -70,7 +73,13 @@ class RightModelRouter:
         breaker: CircuitBreaker | None = None,
         explore_rate: float = 0.10,
         rng_seed: int | None = None,
+        config: str | Path | dict | None = None,
     ) -> None:
+        if config is not None:
+            if isinstance(config, (str, Path)):
+                load_catalog(path=config)
+            elif isinstance(config, dict):
+                load_catalog(config_dict=config)
         self.ledger = ledger if ledger is not None else RightModelLedger()
         self.matrix = matrix if matrix is not None else CapabilityMatrix(self.ledger)
         self.breaker = breaker if breaker is not None else CircuitBreaker()

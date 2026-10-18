@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RightModel Configuration",
+  "description": "User-defined models, pricing, candidates, and task-class capability priors for RightModel.",
+  "models": {
+    "local-llama-coding": {
+      "provider": "local",
+      "input_price_usd_per_m": 0.0,
+      "output_price_usd_per_m": 0.0,
+      "allowed_taints": [
+        "public",
+        "internal",
+        "customer_pii",
+        "prospect_pii",
+        "payment_data",
+        "voice_dna",
+        "private_repo_code"
+      ],
+      "description": "On-premise open weights engine for high-security / zero-marginal-cost tasks"
+    },
+    "fast-utility-model": {
+      "provider": "openai",
+      "input_price_usd_per_m": 0.10,
+      "output_price_usd_per_m": 0.50,
+      "allowed_taints": ["public", "internal"],
+      "description": "High-throughput, low-latency utility tier for extraction, categorization, and routing"
+    },
+    "deep-reasoning-model": {
+      "provider": "anthropic",
+      "input_price_usd_per_m": 4.00,
+      "output_price_usd_per_m": 20.00,
+      "allowed_taints": ["public", "internal", "customer_pii"],
+      "description": "Frontier reasoning model for complex architectural decisions and debugging"
+    },
+    "enterprise-gateway-model": {
+      "provider": "custom-gateway",
+      "input_price_usd_per_m": 1.50,
+      "output_price_usd_per_m": 6.00,
+      "allowed_taints": ["public", "internal", "customer_pii", "private_repo_code"],
+      "description": "Corporate proxy with DPA and enterprise data protection"
+    }
+  },
+  "candidates": {
+    "coding": [
+      "local-llama-coding",
+      "fast-utility-model",
+      "enterprise-gateway-model",
+      "deep-reasoning-model"
+    ],
+    "content_writing": [
+      "fast-utility-model",
+      "deep-reasoning-model"
+    ],
+    "design": [
+      "deep-reasoning-model",
+      "fast-utility-model"
+    ],
+    "planning_pm": [
+      "deep-reasoning-model",
+      "fast-utility-model"
+    ],
+    "marketing": [
+      "deep-reasoning-model",
+      "fast-utility-model"
+    ],
+    "data_analysis": [
+      "enterprise-gateway-model",
+      "deep-reasoning-model",
+      "fast-utility-model"
+    ],
+    "debugging": [
+      "local-llama-coding",
+      "deep-reasoning-model"
+    ],
+    "testing": [
+      "local-llama-coding",
+      "fast-utility-model"
+    ],
+    "security_check": [
+      "deep-reasoning-model",
+      "local-llama-coding"
+    ],
+    "research": [
+      "deep-reasoning-model",
+      "fast-utility-model"
+    ]
+  },
+  "priors": {
+    "coding": {
+      "deep-reasoning-model": 88.0,
+      "enterprise-gateway-model": 82.0,
+      "local-llama-coding": 76.0,
+      "fast-utility-model": 65.0
+    },
+    "content_writing": {
+      "deep-reasoning-model": 88.0,
+      "fast-utility-model": 75.0
+    },
+    "debugging": {
+      "deep-reasoning-model": 90.0,
+      "local-llama-coding": 78.0
+    },
+    "testing": {
+      "deep-reasoning-model": 85.0,
+      "local-llama-coding": 80.0,
+      "fast-utility-model": 70.0
+    }
+  }
+}

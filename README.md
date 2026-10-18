@@ -4,7 +4,7 @@
 
 RightModel decides two things on every task: *which* model should run it, and *how much* that model is allowed to do on its own. It is the routing-and-trust substrate behind [Stewardship Engineering](https://emmanuel.prouveze.fr/writing/stewardship-engineering): the layer that turns "call an LLM" into "call the model that has earned this class of work, then check it afterward."
 
-> Runs daily. **205 tests pass.**
+> Runs daily. **207 tests pass.**
 
 ---
 
@@ -92,9 +92,62 @@ rightmodel report
 rightmodel record --task-class coding --model claude-haiku-4-5 ...
 ```
 
-## Configuration
+## Configuration (Provider & Model Agnostic)
 
-The candidate pool and prices live in [`model_prices.py`](src/rightmodel/model_prices.py) (`PRICES`, `CANDIDATES`). Edit them for your own providers and model ids. Capability numbers start as low-confidence priors and move as the ledger accumulates real outcomes.
+RightModel is completely **provider- and model-agnostic**. It does not lock you into any vendor, closed ecosystem, or static list of model IDs. You bring your own models—whether local open-weights engines (Ollama, vLLM), enterprise gateways (Azure, Bedrock), or direct provider APIs.
+
+You configure your models, pricing, candidate pools, and taint clearances in a `models.json` file:
+
+```bash
+cp models.example.json models.json
+```
+
+Example `models.json`:
+
+```json
+{
+  "models": {
+    "local-llama": {
+      "provider": "local",
+      "input_price_usd_per_m": 0.0,
+      "output_price_usd_per_m": 0.0,
+      "allowed_taints": ["public", "internal", "customer_pii"]
+    },
+    "fast-utility": {
+      "provider": "any-provider",
+      "input_price_usd_per_m": 0.10,
+      "output_price_usd_per_m": 0.50,
+      "allowed_taints": ["public", "internal"]
+    },
+    "deep-reasoner": {
+      "provider": "any-provider",
+      "input_price_usd_per_m": 4.00,
+      "output_price_usd_per_m": 20.00,
+      "allowed_taints": ["public", "internal", "customer_pii"]
+    }
+  },
+  "candidates": {
+    "coding": ["local-llama", "fast-utility", "deep-reasoner"],
+    "content_writing": ["fast-utility", "deep-reasoner"]
+  },
+  "priors": {
+    "coding": {
+      "deep-reasoner": 88.0,
+      "local-llama": 76.0,
+      "fast-utility": 65.0
+    }
+  }
+}
+```
+
+RightModel will look for `models.json` in the current working directory, check the `RIGHTMODEL_CONFIG` environment variable, or accept an explicit path or dictionary:
+
+```python
+router = RightModelRouter(config="path/to/models.json")
+```
+
+If no configuration file is present, a baseline fixture catalog is loaded automatically so tests and local evaluation work immediately out of the box.
+
 
 ## Layout
 

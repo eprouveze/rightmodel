@@ -171,9 +171,21 @@ def clear_run(run_id: str) -> None:
 
 
 def model_to_provider(model: str) -> Provider:
-    """Map a model ID to its Provider. Unknown prefixes → Provider.UNKNOWN."""
+    """Map a model ID to its Provider. Checks active catalog first, then prefix mapping."""
     if not model:
         return Provider.UNKNOWN
+    # Check active catalog for user-defined provider mapping
+    try:
+        from .model_catalog import get_active_catalog
+        catalog = get_active_catalog()
+        prov_name = catalog.providers.get(model)
+        if prov_name:
+            for p in Provider:
+                if p.value == prov_name:
+                    return p
+    except ImportError:
+        pass
+
     m = model.lower()
     if m.startswith("claude-"):
         return Provider.CLAUDE
@@ -203,6 +215,7 @@ def check(
     """Enforce per-provider allowlist against the (call taints ∪ run taints).
 
     AUTH_SECRETS → blocked unconditionally regardless of provider.
+    If the active catalog specifies explicit allowed_taints for the model, those are honored.
     """
     effective: set[TaintClass] = set(taint_set) if taint_set else set()
     if run_id is not None:
@@ -218,6 +231,36 @@ def check(
             ),
             requires_zero_retention=False,
         )
+
+    # If the user configured custom allowed taints for this model, honor their config
+    try:
+        from .model_catalog import get_active_catalog
+        catalog = get_active_catalog()
+        if model in catalog.taints:
+            user_allowed = {
+                TaintClass(t)
+                for t in catalog.taints[model]
+                if t in TaintClass._value2member_map_
+            }
+            disallowed = effective - user_allowed
+            if disallowed:
+                names = sorted(t.value for t in disallowed)
+                return Decision(
+                    allowed=False,
+                    blocked=True,
+                    block_reason=(
+                        f"model={model} not cleared for taint(s): {', '.join(names)}"
+                    ),
+                    requires_zero_retention=False,
+                )
+            return Decision(
+                allowed=True,
+                blocked=False,
+                block_reason=None,
+                requires_zero_retention=False,
+            )
+    except ImportError:
+        pass
 
     provider = model_to_provider(model)
     allowed_set = _PROVIDER_ALLOWLIST[provider]

@@ -104,6 +104,9 @@ _PROVIDER_HARNESSES: dict[str, dict[Harness, HarnessCapability]] = {
     "sonar": {
         Harness.API: HarnessCapability(completion=True, agentic=False),
     },
+    "generic": {
+        Harness.API: HarnessCapability(completion=True, agentic=False),
+    },
 }
 
 # Per-model overrides for when a single model_id diverges from its family. Empty
@@ -112,9 +115,24 @@ _MODEL_OVERRIDES: dict[str, dict[Harness, HarnessCapability]] = {}
 
 
 def provider_family(model: str) -> str:
-    """Resolve a model_id to its provider family. Mirrors the prefix logic used by
-    ``llm_runner.backend_for`` / ``router_policy.model_to_provider``."""
+    """Resolve a model_id to its provider family. Checks active catalog first."""
     m = (model or "").lower()
+    try:
+        from .model_catalog import get_active_catalog
+        catalog = get_active_catalog()
+        prov = catalog.providers.get(model)
+        if prov:
+            prov_clean = prov.lower()
+            if prov_clean in _PROVIDER_HARNESSES:
+                return prov_clean
+            return "generic"
+        elif model in catalog.prices and not any(
+            m.startswith(p) for p in ("claude-", "gpt-", "gemini-", "kimi-", "deepseek-", "minimax-", "sonar-")
+        ):
+            return "generic"
+    except ImportError:
+        pass
+
     if m.startswith("claude-") or m in ("opus", "sonnet", "haiku"):
         return "claude"
     if m.startswith(("gpt-", "o1", "o3", "o4", "codex")):
@@ -130,6 +148,8 @@ def provider_family(model: str) -> str:
     if m.startswith(("sonar-", "perplexity-")):
         return "sonar"
     return "unknown"
+
+
 
 
 def harnesses_for(model: str) -> dict[Harness, HarnessCapability]:
