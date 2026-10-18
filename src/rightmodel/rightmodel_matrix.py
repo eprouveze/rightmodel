@@ -58,6 +58,7 @@ _ELO_BASE: float = 1500.0
 _ELO_K: float = 24.0
 _ELO_SPAN: float = 400.0
 _SYNTHETIC_WEIGHT: float = 0.5
+_SOLO_WEIGHT: float = 0.5
 
 
 @dataclass
@@ -127,6 +128,9 @@ class CapabilityMatrix:
         eff_n: dict[str, float] = {}
         version_hash: dict[str, str] = {}
         lang_cov: dict[str, dict[str, int]] = {}
+        collision_n: dict[str, float] = {}
+        solo_weight: dict[str, float] = {}
+        solo_score_sum: dict[str, float] = {}
 
         for row in rows:
             eff_n[row.model] = eff_n.get(row.model, 0.0) + (
@@ -136,6 +140,19 @@ class CapabilityMatrix:
                 version_hash[row.model] = row.version_hash
             cov = lang_cov.setdefault(row.model, {})
             cov[row.lang] = cov.get(row.lang, 0) + 1
+
+            if row.collision_group is None:
+                w = _SOLO_WEIGHT * (
+                    _SYNTHETIC_WEIGHT if row.source == "synthetic" else 1.0
+                )
+                solo_weight[row.model] = solo_weight.get(row.model, 0.0) + w
+                solo_score_sum[row.model] = solo_score_sum.get(
+                    row.model, 0.0
+                ) + w * _outcome_score(row.outcome)
+            else:
+                collision_n[row.model] = collision_n.get(row.model, 0.0) + (
+                    _SYNTHETIC_WEIGHT if row.source == "synthetic" else 1.0
+                )
 
         for group in self._ledger.collisions(task_class):
             self._update_ratings_from_group(group, ratings)
@@ -152,6 +169,9 @@ class CapabilityMatrix:
                 priors.get(model, DEFAULT_PRIOR),
                 version_hash.get(model, ""),
                 lang_cov.get(model, {}),
+                collision_n.get(model, 0.0),
+                solo_weight.get(model, 0.0),
+                solo_score_sum.get(model, 0.0),
             )
         return out
 
@@ -188,10 +208,20 @@ class CapabilityMatrix:
         prior: float,
         version_hash: str,
         lang_coverage: dict[str, int],
+        collision_n: float = 0.0,
+        solo_weight: float = 0.0,
+        solo_score_sum: float = 0.0,
     ) -> Cell:
         n = int(round(eff_n))
         bt_mu = _elo_to_mu(rating) if rating is not None else prior
-        mu = (PRIOR_WEIGHT * prior + eff_n * bt_mu) / (PRIOR_WEIGHT + eff_n)
+        solo_mu = (
+            100.0 * solo_score_sum / solo_weight if solo_weight > 0.0 else 0.0
+        )
+        mu = (
+            PRIOR_WEIGHT * prior
+            + collision_n * bt_mu
+            + solo_weight * solo_mu
+        ) / (PRIOR_WEIGHT + collision_n + solo_weight)
         sigma = SIGMA_SCALE / math.sqrt(eff_n + 1.0)
         return Cell(
             task_class=task_class,

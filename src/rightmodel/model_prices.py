@@ -26,8 +26,20 @@ PRICES: dict[str, tuple[float, float]] = {
     "deepseek-v4-flash": (0.09, 0.18),
     "kimi-k2.6": (0.68, 3.41),
     "minimax-m3": (0.3, 1.2),
-    "glm-5.2": (0.6, 2.2),  # EST — z.ai (Zhipu) GLM tier, pending /model-scan
     "sonar-pro": (3.0, 15.0),
+    # Modern frontier & utility models (USD / 1M tokens)
+    "claude-3-5-sonnet-20241022": (3.0, 15.0),
+    "claude-3-5-haiku-20241022": (0.80, 4.0),
+    "claude-3-opus-20240229": (15.0, 75.0),
+    "gpt-4o": (2.50, 10.0),
+    "gpt-4o-mini": (0.15, 0.60),
+    "o1": (15.0, 60.0),
+    "o3-mini": (1.10, 4.40),
+    "gemini-1.5-pro": (1.25, 5.0),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "deepseek-chat": (0.14, 0.28),
+    "deepseek-reasoner": (0.55, 2.19),
     # Fusion pseudo-models — NOT real per-token models and NEVER in CANDIDATES (cost-min must
     # never pick them). Registered as (0.0, 0.0) only so existing PRICES/blended_cost/matrix
     # lookups never KeyError; their REAL cost is the A2 summed marginal seat cost at run time.

@@ -190,3 +190,22 @@ def test_refresh_picks_up_new_rows() -> None:
         ledger._rows.append(_row(model="gpt-5.4-nano", outcome="fail", collision_group=g))
     m.refresh()
     assert m.cell("coding", "gpt-5.4-mini").n == 6
+
+
+def test_solo_task_outcomes_move_mu() -> None:
+    """Verify that solo task outcomes adjust mu (solo Bayesian updating)."""
+    # Baseline with empty ledger: sits at prior
+    prior = SEED_PRIOR["coding"]["claude-haiku-4-5"]
+    empty_matrix = CapabilityMatrix(FakeLedger([]))
+    assert empty_matrix.cell("coding", "claude-haiku-4-5").mu == pytest.approx(prior)
+
+    # 10 solo passes (no collision group) -> mu must increase
+    pass_rows = [_row(model="claude-haiku-4-5", outcome="pass", collision_group=None) for _ in range(10)]
+    matrix_pass = CapabilityMatrix(FakeLedger(pass_rows))
+    assert matrix_pass.cell("coding", "claude-haiku-4-5").mu > prior
+
+    # 10 solo fails -> mu must decrease
+    fail_rows = [_row(model="claude-haiku-4-5", outcome="fail", collision_group=None) for _ in range(10)]
+    matrix_fail = CapabilityMatrix(FakeLedger(fail_rows))
+    assert matrix_fail.cell("coding", "claude-haiku-4-5").mu < prior
+

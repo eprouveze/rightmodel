@@ -185,7 +185,7 @@ def model_to_provider(model: str) -> Provider:
         return Provider.KIMI
     if m.startswith("minimax-"):
         return Provider.MINIMAX
-    if m.startswith("gpt-") or m.startswith("codex-") or m.startswith("o1-") or m.startswith("o3-"):
+    if m.startswith("gpt-") or m.startswith("codex-") or m == "o1" or m.startswith("o1-") or m == "o3" or m.startswith("o3-"):
         return Provider.OPENAI
     if m.startswith("sonar-") or m.startswith("perplexity-"):
         return Provider.PERPLEXITY

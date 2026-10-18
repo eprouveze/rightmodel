@@ -34,8 +34,8 @@ _CARD_ORIGIN_PREFIX = "heartbeat-card:"
 
 
 def _repo_root() -> Path:
-    # spine/rightmodel_escrow.py → agents/business-agent/spine → repo root is 3 parents up.
-    return Path(__file__).resolve().parents[3]
+    # src/rightmodel/rightmodel_escrow.py -> src/rightmodel -> repo root is 2 parents up.
+    return Path(__file__).resolve().parents[2]
 
 
 def _outcome_ledger_path() -> Path:

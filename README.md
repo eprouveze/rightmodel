@@ -4,7 +4,7 @@
 
 RightModel decides two things on every task: *which* model should run it, and *how much* that model is allowed to do on its own. It is the routing-and-trust substrate behind [Stewardship Engineering](https://emmanuel.prouveze.fr/writing/stewardship-engineering): the layer that turns "call an LLM" into "call the model that has earned this class of work, then check it afterward."
 
-> Runs daily. **204 tests pass.**
+> Runs daily. **205 tests pass.**
 
 ---
 
@@ -119,6 +119,7 @@ python -m pytest tests/
 ## Related
 
 - [heartbeat](https://github.com/eprouveze/heartbeat) — the autonomous work loop RightModel routes for.
+- [anamnesis](https://github.com/eprouveze/anamnesis) — persistent memory with decay, dreaming, and falsifiable precedents.
 - [Stewardship Engineering](https://github.com/eprouveze/stewardship-engineering) — the umbrella: discipline, manifesto, and the full stack.
 
 ## License
